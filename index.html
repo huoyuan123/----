@@ -347,11 +347,15 @@
             });
         }
 
-        // 修改背景加载逻辑
+        // 修改背景加载逻辑，确保背景图撑满全屏
         function createBackground() {
             const loader = new THREE.TextureLoader();
             loader.load('闯关背景.jpg', (texture) => {
-                const bgGeo = new THREE.PlaneGeometry(40, 30);
+                const aspect = window.innerWidth / window.innerHeight;
+                const bgWidth = FRUSTUM_SIZE * aspect * 1.2; // 拉宽背景图
+                const bgHeight = FRUSTUM_SIZE * 1.2; // 拉高背景图
+
+                const bgGeo = new THREE.PlaneGeometry(bgWidth, bgHeight);
                 const bgMat = new THREE.MeshBasicMaterial({ map: texture });
                 const bgMesh = new THREE.Mesh(bgGeo, bgMat);
                 bgMesh.position.set(0, 0, -10);
