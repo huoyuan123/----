@@ -205,7 +205,7 @@
             <h2>剑刃工坊</h2>
             <div style="display: flex; justify-content: space-around; margin-top: 50px;">
                 <div style="border: 2px dashed #666; padding: 20px;">
-                    <p>初始剑 (LV.1)</p>
+                    <p>基础剑 (LV.1)</p>
                     <button class="btn" style="font-size: 10px;">已装备</button>
                 </div>
                 <div style="border: 2px solid #ffd700; padding: 20px; background: #333;">
@@ -296,7 +296,6 @@
 
         // 加载剑图并抠掉接近白色的背景，返回纹理与纵横比
         function loadSwordImage(url) {
-            console.log('Loading sword image:', url);
             return new Promise((resolve, reject) => {
                 const img = new Image();
                 img.crossOrigin = 'anonymous';
@@ -320,10 +319,7 @@
                     tex.needsUpdate = true;
                     resolve({ texture: tex, aspect: img.width / img.height });
                 };
-                img.onerror = () => {
-                    console.error('Failed to load sword image:', url);
-                    reject();
-                };
+                img.onerror = reject;
                 img.src = url;
             });
         }
@@ -332,72 +328,34 @@
             sword = new THREE.Group();
             scene.add(sword);
 
-            const createChromaKeyMaterial = (tex) => {
-                const material = new THREE.ShaderMaterial({
-                    uniforms: {
-                        map: { value: tex },
-                        keyColor: { value: new THREE.Color(0xffffff) },
-                        threshold: { value: 0.18 }
-                    },
-                    vertexShader: `
-                        varying vec2 vUv;
-                        void main() {
-                            vUv = uv;
-                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                        }
-                    `,
-                    fragmentShader: `
-                        uniform sampler2D map;
-                        uniform vec3 keyColor;
-                        uniform float threshold;
-                        varying vec2 vUv;
-                        void main() {
-                            vec4 col = texture2D(map, vUv);
-                            float diff = distance(col.rgb, keyColor);
-                            float alpha = col.a * step(threshold, diff);
-                            if(alpha < 0.001) discard;
-                            gl_FragColor = vec4(col.rgb, alpha);
-                        }
-                    `,
-                    transparent: true
-                });
-                return material;
-            };
-
-            const loader = new THREE.TextureLoader();
-            loader.load('C:/Users/27871/桌面/手势传说/初始剑.jpg', (tex) => {
-                console.log('Sword image loaded successfully:', tex);
-                const h = 4.5;
-                const aspect = tex.image && tex.image.width ? (tex.image.width / tex.image.height) : 0.3;
+            // 加载初始剑.jpg
+            loadSwordImage('初始剑.jpg').then(({ texture, aspect }) => {
+                const h = 4.5; // 可调：视觉上合适的高度
                 const w = h * aspect;
                 const geo = new THREE.PlaneGeometry(w, h);
-                const mat = createChromaKeyMaterial(tex);
+                const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
                 const mesh = new THREE.Mesh(geo, mat);
                 mesh.renderOrder = 2;
                 sword.add(mesh);
-                sword.userData.material = mat;
-                console.log('Sword added to the scene with texture.');
-            }, undefined, (err) => {
-                console.error('Failed to load sword image:', err);
+                sword.userData.material = mat; // 供锻造变色时使用
+            }).catch(() => {
                 const hilt = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.5, 0.2), new THREE.MeshStandardMaterial({ color: 0x8b4513 }));
                 const blade = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 0.1), new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.2 }));
                 blade.position.y = 2.2;
                 sword.add(hilt); sword.add(blade);
                 sword.userData.material = blade.material;
-                console.log('Fallback sword created and added to the scene.');
             });
         }
 
+        // 修改背景加载逻辑
         function createBackground() {
             const loader = new THREE.TextureLoader();
-            loader.load('C:/Users/27871/桌面/手势传说/闯关背景.jpg', (texture) => {
-                console.log('Background image loaded successfully:', texture);
+            loader.load('闯关背景.jpg', (texture) => {
                 const bgGeo = new THREE.PlaneGeometry(40, 30);
                 const bgMat = new THREE.MeshBasicMaterial({ map: texture });
                 const bgMesh = new THREE.Mesh(bgGeo, bgMat);
                 bgMesh.position.set(0, 0, -10);
                 scene.add(bgMesh);
-                console.log('Background added to the scene.');
             }, undefined, (err) => {
                 console.error('Failed to load background image:', err);
             });
@@ -591,17 +549,9 @@
         document.getElementById('btn-close-craft').addEventListener('click', toggleCrafting);
         document.getElementById('btn-craft').addEventListener('click', () => {
             if (materials >= 50) {
-                materials -= 50; swordLevel = 5;
-                // 兼容图片剑与几何体剑
-                if (sword && sword.userData && sword.userData.material) {
-                    const m = sword.userData.material;
-                    if (m.color) m.color.set(0xff6a00);
-                    if (m.emissive !== undefined) m.emissive = new THREE.Color(0xff3a00);
-                    m.needsUpdate = true;
-                } else if (sword && sword.children && sword.children[1] && sword.children[1].material) {
-                    sword.children[1].material.color.set(0xff3300);
-                    sword.children[1].material.emissive = new THREE.Color(0xff0000);
-                }
+                materials -= 50; swordLevel = 5; 
+                sword.children[1].material.color.set(0xff3300); 
+                sword.children[1].material.emissive = new THREE.Color(0xff0000);
                 updateHUD(); alert("火焰剑锻造成功！挥动鼠标或手势即可发射火球！"); toggleCrafting();
             } else alert("材料不足！");
         });
