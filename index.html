@@ -25,6 +25,7 @@
             z-index: 1;
         }
 
+        /* 调整摄像头的透明度，确保不被背景遮挡 */
         #webcam-feed {
             position: absolute;
             bottom: 10px;
@@ -33,9 +34,9 @@
             height: 120px;
             transform: scaleX(-1);
             border: 4px solid #4a3b2a;
-            z-index: 2;
+            z-index: 20; /* 提升层级，确保在背景之上 */
             display: none;
-            opacity: 0.7;
+            opacity: 0.9; /* 提高透明度，避免完全被挡住 */
         }
 
         #ui-layer {
@@ -139,6 +140,8 @@
             pointer-events: none;
             font-size: 12px;
             line-height: 1.6;
+            text-shadow: none; /* 移除阴影 */
+            color: black; /* 设置文字颜色为黑色 */
         }
         
         #crafting-menu {
@@ -274,24 +277,55 @@
         // --- 核心修改：创建三个堡垒 ---
         function createFortresses() {
             const radius = 2.5; // 堡垒距离中心的距离
-            const fortressGeo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
-            
-            for(let i=0; i<3; i++) {
-                const angle = (i * 120 + 90) * (Math.PI / 180); // 等边三角形分布
-                const mat = new THREE.MeshStandardMaterial({ color: 0x555555 });
-                const fort = new THREE.Mesh(fortressGeo, mat);
-                
-                fort.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius, 0);
-                fort.userData = { hp: 100, id: i };
-                
-                // 给堡垒加一个小顶端区分
-                const roof = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.8), new THREE.MeshStandardMaterial({color: 0xaa0000}));
-                roof.position.y = 1;
-                fort.add(roof);
+            const fortressGeo = new THREE.PlaneGeometry(4, 3); // 将堡垒的宽度调整为更宽尺寸
 
-                scene.add(fort);
-                fortresses.push(fort);
-            }
+            const loader = new THREE.TextureLoader();
+            loader.load('生成塔防小堡垒照片.png', (texture) => {
+                const material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        map: { value: texture },
+                        keyColor: { value: new THREE.Color(0xffffff) }, // 白色作为抠像颜色
+                        threshold: { value: 0.1 } // 设置抠像的阈值
+                    },
+                    vertexShader: `
+                        varying vec2 vUv;
+                        void main() {
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D map;
+                        uniform vec3 keyColor;
+                        uniform float threshold;
+                        varying vec2 vUv;
+                        void main() {
+                            vec4 color = texture2D(map, vUv);
+                            float diff = distance(color.rgb, keyColor);
+                            if (diff < threshold) discard; // 抠掉接近白色的背景
+                            gl_FragColor = vec4(color.rgb, color.a);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                for (let i = 0; i < 3; i++) {
+                    const angle = (i * 120 + 90) * (Math.PI / 180); // 等边三角形分布
+                    const fort = new THREE.Mesh(fortressGeo, material);
+
+                    fort.position.set(
+                        Math.cos(angle) * radius,
+                        Math.sin(angle) * radius,
+                        0
+                    );
+                    fort.userData = { hp: 100, id: i };
+
+                    scene.add(fort);
+                    fortresses.push(fort);
+                }
+            }, undefined, (err) => {
+                console.error('Failed to load fortress image:', err);
+            });
         }
 
         // 加载剑图并抠掉接近白色的背景，返回纹理与纵横比
@@ -553,11 +587,21 @@
         document.getElementById('btn-close-craft').addEventListener('click', toggleCrafting);
         document.getElementById('btn-craft').addEventListener('click', () => {
             if (materials >= 50) {
-                materials -= 50; swordLevel = 5; 
-                sword.children[1].material.color.set(0xff3300); 
-                sword.children[1].material.emissive = new THREE.Color(0xff0000);
-                updateHUD(); alert("火焰剑锻造成功！挥动鼠标或手势即可发射火球！"); toggleCrafting();
-            } else alert("材料不足！");
+                materials -= 50;
+                swordLevel = 5;
+
+                // 移除初始剑
+                scene.remove(sword);
+
+                // 创建并添加火焰剑
+                createFlameSword();
+
+                updateHUD();
+                alert("火焰剑锻造成功！挥动鼠标或手势即可发射火球！");
+                toggleCrafting();
+            } else {
+                alert("材料不足！");
+            }
         });
 
         function startGame(mode) {
