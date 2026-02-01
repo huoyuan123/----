@@ -230,6 +230,16 @@
             <div id="loader">正在加载 AI 模型...</div>
         </div>
 
+        <!-- 模式选择弹窗 -->
+        <div id="mode-popup" style="display:none; position:fixed; left:0; top:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; justify-content:center; align-items:center; pointer-events:auto;">
+            <div style="background:#222; color:#ffd700; border:4px solid #ffd700; border-radius:16px; padding:40px 32px; text-align:center; min-width:260px; font-family:'Press Start 2P',cursive; box-shadow:0 0 24px #000; position:relative;">
+                <button id="close-popup-btn" style="position:absolute; top:12px; right:16px; background:none; border:none; color:#ffd700; font-size:22px; cursor:pointer;">×</button>
+                <h2 style="margin-bottom:32px; font-size:22px;">请选择操作</h2>
+                <button class="btn" id="continue-game-btn" style="width:160px; margin-bottom:18px;">继续游戏</button><br>
+                <button class="btn" id="restart-game-btn" style="width:160px;">重新开始</button>
+            </div>
+        </div>
+
         <div id="hud">
             <div>分数: <span id="score">0</span> | 材料: <span id="materials">0</span></div>
             <div class="hp-text">堡垒A HP: <span id="hp-0">100</span></div>
@@ -259,6 +269,11 @@
     </div>
 
     <script type="module">
+                    // 关闭弹窗按钮（需在弹窗渲染后绑定事件）
+                    setTimeout(() => {
+                        const closeBtn = document.getElementById('close-popup-btn');
+                        if (closeBtn) closeBtn.onclick = hideModePopup;
+                    }, 0);
                 // 仅在游戏界面显示返回菜单按钮
                 function showBackMenuBtn(show) {
                     document.getElementById('backMenuBtn').style.display = show ? 'block' : 'none';
@@ -309,6 +324,98 @@
         let swordLevel = 1; 
         let fireballs = []; 
         let lastFireballTime = 0;
+        let spawnEnemyIntervalId = null;
+
+        // --- 存档（继续游戏/重新开始） ---
+        const GAME_SAVE_KEY = 'gameSave';
+        let saveDebounceId = null;
+        let pendingFortressHp = null;
+
+        function requestSaveGameState() {
+            if (saveDebounceId !== null) return;
+            saveDebounceId = setTimeout(() => {
+                saveDebounceId = null;
+                saveGameState();
+            }, 200);
+        }
+
+        function saveGameState() {
+            try {
+                const data = {
+                    v: 1,
+                    ts: Date.now(),
+                    score,
+                    materials,
+                    swordLevel,
+                    fortressHp: fortresses.map(f => typeof f?.userData?.hp === 'number' ? f.userData.hp : 100)
+                };
+                localStorage.setItem(GAME_SAVE_KEY, JSON.stringify(data));
+            } catch (e) {
+                // 忽略存档失败
+            }
+        }
+
+        function applySaveData(data) {
+            if (!data || typeof data !== 'object') return;
+
+            if (typeof data.score === 'number') score = data.score;
+            if (typeof data.materials === 'number') materials = data.materials;
+            if (typeof data.swordLevel === 'number') swordLevel = data.swordLevel;
+
+            if (Array.isArray(data.fortressHp) && data.fortressHp.length >= 3) {
+                if (fortresses.length >= 3) {
+                    fortresses.forEach((f, i) => {
+                        if (!f?.userData) f.userData = {};
+                        const hp = data.fortressHp[i];
+                        f.userData.hp = typeof hp === 'number' ? hp : 100;
+                    });
+                } else {
+                    pendingFortressHp = data.fortressHp;
+                }
+            }
+
+            // 恢复武器外观（火焰剑）
+            if (swordLevel >= 5) {
+                try { if (sword) scene.remove(sword); } catch {}
+                try { createFlameSword(); } catch {}
+            }
+
+            updateHUD();
+        }
+
+        function resetGameState() {
+            score = 0;
+            materials = 0;
+            swordLevel = 1;
+            lastFireballTime = 0;
+
+            // 清理敌人/粒子/火球
+            try {
+                enemies.forEach(e => { try { scene.remove(e); } catch {} });
+                particles.forEach(p => { try { scene.remove(p); } catch {} });
+                fireballs.forEach(fb => { try { scene.remove(fb); } catch {} });
+            } catch {}
+            enemies = [];
+            particles = [];
+            fireballs = [];
+
+            // 重置堡垒血量
+            fortresses.forEach((f) => {
+                if (!f?.userData) f.userData = {};
+                f.userData.hp = 100;
+            });
+
+            // 重置武器
+            try { if (sword) scene.remove(sword); } catch {}
+            try { createSword(); } catch {}
+
+            // 关闭工坊
+            const craftMenu = document.getElementById('crafting-menu');
+            if (craftMenu) craftMenu.style.display = 'none';
+
+            updateHUD();
+            requestSaveGameState();
+        }
         const FIREBALL_COOLDOWN_MS = 1000 / 3;
         const FIREBALL_SPEED = 0.12; // 火球速度为飞镖速度的 2 倍
 
@@ -533,6 +640,17 @@
 
                     scene.add(fort);
                     fortresses.push(fort);
+                }
+
+                // 若“继续游戏”时堡垒尚未创建，等创建完成后再应用血量
+                if (Array.isArray(pendingFortressHp) && pendingFortressHp.length >= 3) {
+                    fortresses.forEach((f, i) => {
+                        if (!f?.userData) f.userData = {};
+                        const hp = pendingFortressHp[i];
+                        f.userData.hp = typeof hp === 'number' ? hp : 100;
+                    });
+                    pendingFortressHp = null;
+                    updateHUD();
                 }
             }, undefined, (err) => {
                 console.error('Failed to load fortress image:', err);
@@ -839,6 +957,10 @@
             fortresses.forEach((f, i) => {
                 document.getElementById(`hp-${i}`).innerText = Math.max(0, f.userData.hp);
             });
+
+            if (currentState === STATE.PLAYING) {
+                requestSaveGameState();
+            }
         }
 
         function toggleCrafting() {
@@ -881,8 +1003,51 @@
             cameraUtils.start().then(() => { document.getElementById('loader').style.display = 'none'; startGame('gesture'); }).catch(() => alert("无法启动摄像头"));
         }
 
-        document.getElementById('btn-mouse').addEventListener('click', () => startGame('mouse'));
-        document.getElementById('btn-gesture').addEventListener('click', setupMediaPipe);
+        // 模式选择弹窗逻辑
+        let selectedMode = null;
+        function showModePopup(mode) {
+            selectedMode = mode;
+            document.getElementById('mode-popup').style.display = 'flex';
+        }
+        function hideModePopup() {
+            document.getElementById('mode-popup').style.display = 'none';
+        }
+
+        document.getElementById('btn-mouse').addEventListener('click', () => showModePopup('mouse'));
+        document.getElementById('btn-gesture').addEventListener('click', () => showModePopup('gesture'));
+
+        // 继续游戏按钮
+        document.getElementById('continue-game-btn').addEventListener('click', () => {
+            hideModePopup();
+
+            // 读取存档（没有存档就当作新开一局）
+            let raw = null;
+            try { raw = localStorage.getItem(GAME_SAVE_KEY); } catch {}
+
+            if (raw) {
+                try {
+                    applySaveData(JSON.parse(raw));
+                } catch {}
+            } else {
+                resetGameState();
+            }
+
+            // 进入游戏
+            if (selectedMode === 'gesture') setupMediaPipe();
+            else startGame('mouse');
+        });
+
+        // 重新开始按钮
+        document.getElementById('restart-game-btn').addEventListener('click', () => {
+            hideModePopup();
+
+            try { localStorage.removeItem(GAME_SAVE_KEY); } catch {}
+            resetGameState();
+
+            // 直接进入新游戏
+            if (selectedMode === 'gesture') setupMediaPipe();
+            else startGame('mouse');
+        });
         document.getElementById('btn-close-craft').addEventListener('click', toggleCrafting);
         document.getElementById('btn-craft').addEventListener('click', () => {
             if (swordLevel >= 5) {
@@ -963,7 +1128,15 @@
             document.getElementById('hud').style.display = 'block';
             if(mode === 'gesture') document.getElementById('webcam-feed').style.display = 'block';
             currentState = STATE.PLAYING;
-            setInterval(spawnEnemy, 2000); 
+
+            // 开局先刷新一次 HUD（确保“继续/重开”的数值立刻显示）
+            updateHUD();
+
+            if (spawnEnemyIntervalId !== null) {
+                clearInterval(spawnEnemyIntervalId);
+                spawnEnemyIntervalId = null;
+            }
+            spawnEnemyIntervalId = setInterval(spawnEnemy, 2000);
 
             // 进入游戏时暂停主菜单BGM
             if (menuBgmEl) {
