@@ -310,7 +310,7 @@
         let fireballs = []; 
         let lastFireballTime = 0;
         const FIREBALL_COOLDOWN_MS = 1000 / 3;
-        const FIREBALL_SPEED = 0.04; // 与飞镖速度一致
+        const FIREBALL_SPEED = 0.12; // 火球速度为飞镖速度的 2 倍
 
         // --- 主菜单背景音乐 ---
         const MENU_BGM_STORAGE_KEY = 'gesture-legend.menuBgmEnabled';
@@ -802,7 +802,7 @@
                 const swordTip = new THREE.Vector3(0, 1, 0).applyMatrix4(sword.matrixWorld);
                 const direction = new THREE.Vector3(0, 1, 0).applyQuaternion(sword.quaternion).normalize();
                 loadSwordImage('火球.png').then(({ texture, aspect }) => {
-                    const h = 3.3;
+                    const h = 1.1;
                     const w = h * aspect;
                     const geo = new THREE.PlaneGeometry(w, h);
                     const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
