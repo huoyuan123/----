@@ -183,12 +183,23 @@
     <video id="input-video" style="display:none"></video>
     <canvas id="webcam-feed"></canvas>
 
+    <!-- 主菜单背景音乐 -->
+    <audio id="menu-bgm" preload="auto" loop>
+        <source src="沈奕秋%20-%20开往春天的地铁.mflac" type="audio/flac">
+    </audio>
+
+    <!-- 游戏内背景音乐 -->
+    <audio id="bgm" preload="auto" loop>
+        <source src="Tobu%20-%20Higher.flac" type="audio/flac">
+    </audio>
+
     <div id="game-container"></div>
 
     <div id="ui-layer">
         <div id="main-menu">
             <h1>像素剑士<br><span style="font-size:0.6em; color:#fff;">手势传说</span></h1>
             <p style="font-size: 10px; margin-bottom: 20px; color: #ddd;">保护中心的三座堡垒！</p>
+            <button class="btn" id="btn-menu-bgm" style="position:absolute; top:20px; right:20px; font-size:10px; pointer-events:auto;">菜单BGM: ON</button>
             <div class="menu-buttons-container">
                 <button class="btn" id="btn-gesture"></button>
                 <button class="btn" id="btn-mouse"></button>
@@ -201,6 +212,9 @@
             <div class="hp-text">堡垒A HP: <span id="hp-0">100</span></div>
             <div class="hp-text">堡垒B HP: <span id="hp-1">100</span></div>
             <div class="hp-text">堡垒C HP: <span id="hp-2">100</span></div>
+            <div style="margin-top: 10px;">
+                <button class="btn" id="btn-bgm" style="font-size: 10px; pointer-events: auto;">BGM: ON</button>
+            </div>
             <div style="font-size: 10px; margin-top: 10px;">[ESC] 打开工坊</div>
         </div>
 
@@ -232,6 +246,96 @@
         let materials = 0;
         let swordLevel = 1; 
         let fireballs = []; 
+
+        // --- 主菜单背景音乐 ---
+        const MENU_BGM_STORAGE_KEY = 'gesture-legend.menuBgmEnabled';
+        const menuBgmEl = document.getElementById('menu-bgm');
+        let menuBgmEnabled = true;
+
+        function loadMenuBgmPreference() {
+            const raw = localStorage.getItem(MENU_BGM_STORAGE_KEY);
+            if (raw === null) return true; // 默认开启
+            return raw === '1';
+        }
+
+        function updateMenuBgmButton() {
+            const btn = document.getElementById('btn-menu-bgm');
+            if (!btn) return;
+            btn.innerText = `菜单BGM: ${menuBgmEnabled ? 'ON' : 'OFF'}`;
+        }
+
+        async function playMenuBgmIfEnabled(reason = 'apply') {
+            if (!menuBgmEl) return;
+            menuBgmEl.volume = 0.7;
+
+            if (!menuBgmEnabled) {
+                try { menuBgmEl.pause(); } catch {}
+                return;
+            }
+
+            try {
+                await menuBgmEl.play();
+            } catch (e) {
+                if (reason !== 'toggle') console.warn('Menu BGM autoplay blocked:', e);
+            }
+        }
+
+        function initMenuBgm() {
+            menuBgmEnabled = loadMenuBgmPreference();
+            updateMenuBgmButton();
+
+            const btn = document.getElementById('btn-menu-bgm');
+            if (btn) {
+                btn.addEventListener('click', async () => {
+                    menuBgmEnabled = !menuBgmEnabled;
+                    localStorage.setItem(MENU_BGM_STORAGE_KEY, menuBgmEnabled ? '1' : '0');
+                    updateMenuBgmButton();
+                    await playMenuBgmIfEnabled('toggle');
+                });
+            }
+
+            // 初次进入主菜单时尝试播放一次
+            playMenuBgmIfEnabled('init');
+        }
+
+        // --- 游戏内背景音乐 ---
+        const BGM_STORAGE_KEY = 'gesture-legend.bgmEnabled';
+        const bgmEl = document.getElementById('bgm');
+        let bgmEnabled = true;
+
+        function loadBgmPreference() {
+            const raw = localStorage.getItem(BGM_STORAGE_KEY);
+            if (raw === null) return true; // 默认开启
+            return raw === '1';
+        }
+
+        function updateBgmButton() {
+            const btn = document.getElementById('btn-bgm');
+            if (!btn) return;
+            btn.innerText = `BGM: ${bgmEnabled ? 'ON' : 'OFF'}`;
+        }
+
+        async function applyBgmState(nextEnabled, reason = 'apply') {
+            bgmEnabled = !!nextEnabled;
+            localStorage.setItem(BGM_STORAGE_KEY, bgmEnabled ? '1' : '0');
+            updateBgmButton();
+
+            if (!bgmEl) return;
+            bgmEl.volume = 0.7;
+
+            if (!bgmEnabled) {
+                try { bgmEl.pause(); } catch {}
+                return;
+            }
+
+            // 浏览器通常要求“用户交互后”才能播放；startGame/按钮点击属于交互
+            try {
+                await bgmEl.play();
+            } catch (e) {
+                // 自动播放被拦截时，保持为开启状态，用户再次点击按钮即可播放
+                if (reason !== 'toggle') console.warn('BGM autoplay blocked:', e);
+            }
+        }
 
         // --- 飞镖抠像资源（用于敌人/材料特效） ---
         const DART_IMAGE_URLS = [
@@ -640,6 +744,14 @@
             else if (currentState === STATE.CRAFTING) { currentState = STATE.PLAYING; craftMenu.style.display = 'none'; }
         }
 
+        // BGM 初始化（尽早绑定按钮与读取偏好）
+        initMenuBgm();
+        bgmEnabled = loadBgmPreference();
+        updateBgmButton();
+        document.getElementById('btn-bgm').addEventListener('click', async () => {
+            await applyBgmState(!bgmEnabled, 'toggle');
+        });
+
         // MediaPipe
         function setupMediaPipe() {
             document.getElementById('loader').style.display = 'block';
@@ -695,6 +807,14 @@
             if(mode === 'gesture') document.getElementById('webcam-feed').style.display = 'block';
             currentState = STATE.PLAYING;
             setInterval(spawnEnemy, 2000); 
+
+            // 进入游戏时暂停主菜单BGM
+            if (menuBgmEl) {
+                try { menuBgmEl.pause(); } catch {}
+            }
+
+            // 用户开始游戏时尝试播放背景音乐（默认开启）
+            applyBgmState(bgmEnabled, 'startGame');
         }
 
         function animate() { requestAnimationFrame(animate); updateGame(); renderer.render(scene, camera); }
