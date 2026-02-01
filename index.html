@@ -7,6 +7,19 @@
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     
     <style>
+                /* 菜单BGM按钮显眼样式 */
+                #btn-menu-bgm {
+                    position: fixed !important;
+                    top: 20px !important;
+                    right: 20px !important;
+                    z-index: 10000 !important;
+                    font-size: 14px !important;
+                    background: #222 !important;
+                    color: #ffd700 !important;
+                    border: 2px solid #ffd700 !important;
+                    opacity: 1 !important;
+                    pointer-events: auto !important;
+                }
         /* --- CSS 样式 --- */
         body {
             margin: 0;
@@ -185,7 +198,7 @@
 
     <!-- 主菜单背景音乐 -->
     <audio id="menu-bgm" preload="auto" loop>
-        <source src="park%20bird%20-%20Are%20You%20Lost_H.ogg" type="audio/ogg">
+        <source src="park bird - Are You Lost_H.ogg" type="audio/ogg">
     </audio>
 
     <!-- 游戏内背景音乐 -->
@@ -197,6 +210,10 @@
     <audio id="hit-sfx" preload="auto">
         <source src="碰撞声音.mp3" type="audio/mpeg">
     </audio>
+    <!-- 堡垒受击音效 -->
+    <audio id="fortress-hit-sfx" preload="auto">
+        <source src="堡垒受击.mp3" type="audio/mpeg">
+    </audio>
 
     <div id="game-container"></div>
 
@@ -204,7 +221,7 @@
         <div id="main-menu">
             <h1>像素剑士<br><span style="font-size:0.6em; color:#fff;">手势传说</span></h1>
             <p style="font-size: 10px; margin-bottom: 20px; color: #ddd;">保护中心的三座堡垒！</p>
-            <button class="btn" id="btn-menu-bgm" style="position:absolute; top:20px; right:20px; font-size:10px; pointer-events:auto;">菜单BGM: ON</button>
+            <button class="btn" id="btn-menu-bgm">菜单BGM: ON</button>
             <div class="menu-buttons-container">
                 <button class="btn" id="btn-gesture"></button>
                 <button class="btn" id="btn-mouse"></button>
@@ -258,27 +275,28 @@
         const hitSfxEl = document.getElementById('hit-sfx');
         let menuBgmEnabled = true;
 
+        // 读取本地存储，默认开启
         function loadMenuBgmPreference() {
             const raw = localStorage.getItem(MENU_BGM_STORAGE_KEY);
-            if (raw === null) return true; // 默认开启
+            if (raw === null) return true;
             return raw === '1';
         }
 
+        // 更新按钮文本
         function updateMenuBgmButton() {
             const btn = document.getElementById('btn-menu-bgm');
             if (!btn) return;
             btn.innerText = `菜单BGM: ${menuBgmEnabled ? 'ON' : 'OFF'}`;
         }
 
+        // 根据开关播放或暂停音乐
         async function playMenuBgmIfEnabled(reason = 'apply') {
             if (!menuBgmEl) return;
             menuBgmEl.volume = 0.7;
-
             if (!menuBgmEnabled) {
                 try { menuBgmEl.pause(); } catch {}
                 return;
             }
-
             try {
                 await menuBgmEl.play();
             } catch (e) {
@@ -286,10 +304,10 @@
             }
         }
 
+        // 初始化菜单BGM按钮和状态
         function initMenuBgm() {
             menuBgmEnabled = loadMenuBgmPreference();
             updateMenuBgmButton();
-
             const btn = document.getElementById('btn-menu-bgm');
             if (btn) {
                 btn.addEventListener('click', async () => {
@@ -299,7 +317,6 @@
                     await playMenuBgmIfEnabled('toggle');
                 });
             }
-
             // 初次进入主菜单时尝试播放一次
             playMenuBgmIfEnabled('init');
         }
@@ -692,7 +709,14 @@
                     createParticles(enemy.position);
                     scene.remove(enemy);
                     enemies.splice(i, 1);
-                    
+                    // 播放堡垒受击音效
+                    const fortressHitSfxEl = document.getElementById('fortress-hit-sfx');
+                    if (fortressHitSfxEl) {
+                        try {
+                            fortressHitSfxEl.currentTime = 0;
+                            fortressHitSfxEl.play();
+                        } catch (e) {}
+                    }
                     if(data.target.userData.hp <= 0) {
                         data.target.material.color.set(0x111111); // 堡垒损毁变黑
                     }
