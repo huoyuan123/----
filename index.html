@@ -216,6 +216,11 @@
         <source src="堡垒受击.mp3" type="audio/mpeg">
     </audio>
 
+    <!-- UI 点击音效（任意可交互选项点击时播放） -->
+    <audio id="click-sfx" preload="auto">
+        <source src="点击音效.mp3" type="audio/mpeg">
+    </audio>
+
     <div id="game-container"></div>
 
     <div id="ui-layer">
@@ -423,7 +428,61 @@
         const MENU_BGM_STORAGE_KEY = 'gesture-legend.menuBgmEnabled';
         const menuBgmEl = document.getElementById('menu-bgm');
         const hitSfxEl = document.getElementById('hit-sfx');
+        const clickSfxEl = document.getElementById('click-sfx');
         let menuBgmEnabled = true;
+
+        function playClickSfx() {
+            if (!clickSfxEl) return;
+            try {
+                clickSfxEl.currentTime = 0;
+                const p = clickSfxEl.play();
+                if (p && typeof p.catch === 'function') p.catch(() => {});
+            } catch {}
+        }
+
+        function isUiInteractiveTarget(node) {
+            if (!(node instanceof Element)) return false;
+            const clickable = node.closest(
+                [
+                    'button',
+                    'a[href]',
+                    'input[type="button"]',
+                    'input[type="submit"]',
+                    'input[type="reset"]',
+                    'select',
+                    'summary',
+                    '[role="button"]',
+                    '[onclick]',
+                    '[data-click-sound]',
+                    '.btn'
+                ].join(',')
+            );
+            if (!clickable) return false;
+            if (clickable.matches('button:disabled, input:disabled, select:disabled, [aria-disabled="true"]')) return false;
+            return true;
+        }
+
+        // 全局点击音效：捕获阶段，确保即使按钮内部 stopPropagation 也能响
+        document.addEventListener(
+            'click',
+            (ev) => {
+                if (ev.button !== 0) return;
+                if (!isUiInteractiveTarget(ev.target)) return;
+                playClickSfx();
+            },
+            true
+        );
+
+        // 键盘激活（回车/空格）也补一份（部分自定义控件不会触发 click）
+        document.addEventListener(
+            'keydown',
+            (ev) => {
+                if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                if (!isUiInteractiveTarget(document.activeElement)) return;
+                playClickSfx();
+            },
+            true
+        );
 
         // 读取本地存储，默认开启
         function loadMenuBgmPreference() {
