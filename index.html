@@ -185,12 +185,17 @@
 
     <!-- 主菜单背景音乐 -->
     <audio id="menu-bgm" preload="auto" loop>
-        <source src="沈奕秋%20-%20开往春天的地铁.mflac" type="audio/flac">
+        <source src="park%20bird%20-%20Are%20You%20Lost_H.ogg" type="audio/ogg">
     </audio>
 
     <!-- 游戏内背景音乐 -->
     <audio id="bgm" preload="auto" loop>
         <source src="Tobu%20-%20Higher.flac" type="audio/flac">
+    </audio>
+
+    <!-- 剑与飞镖碰撞音效 -->
+    <audio id="hit-sfx" preload="auto">
+        <source src="碰撞声音.mp3" type="audio/mpeg">
     </audio>
 
     <div id="game-container"></div>
@@ -250,6 +255,7 @@
         // --- 主菜单背景音乐 ---
         const MENU_BGM_STORAGE_KEY = 'gesture-legend.menuBgmEnabled';
         const menuBgmEl = document.getElementById('menu-bgm');
+        const hitSfxEl = document.getElementById('hit-sfx');
         let menuBgmEnabled = true;
 
         function loadMenuBgmPreference() {
@@ -667,6 +673,13 @@
 
                 // 玩家击杀
                 if (sword.position.distanceTo(enemy.position) < 2.0) {
+                    // 播放碰撞音效
+                    if (hitSfxEl) {
+                        try {
+                            hitSfxEl.currentTime = 0;
+                            hitSfxEl.play();
+                        } catch (e) {}
+                    }
                     createParticles(enemy.position);
                     scene.remove(enemy); enemies.splice(i, 1);
                     score += 100; materials += 2; updateHUD();
