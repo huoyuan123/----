@@ -277,9 +277,8 @@
 
         // 读取本地存储，默认开启
         function loadMenuBgmPreference() {
-            const raw = localStorage.getItem(MENU_BGM_STORAGE_KEY);
-            if (raw === null) return true;
-            return raw === '1';
+            // 每次都强制关闭，忽略localStorage
+            return false;
         }
 
         // 更新按钮文本
