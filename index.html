@@ -192,6 +192,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
+    <button id="backMenuBtn" style="position: fixed; right: 30px; top: 30px; z-index: 10001; padding: 10px 24px; font-size: 18px; background: #ffd700; color: #222; border: 2px solid #222; border-radius: 8px; cursor: pointer; display: none;">返回菜单</button>
 
     <video id="input-video" style="display:none"></video>
     <canvas id="webcam-feed"></canvas>
@@ -258,6 +259,45 @@
     </div>
 
     <script type="module">
+                // 仅在游戏界面显示返回菜单按钮
+                function showBackMenuBtn(show) {
+                    document.getElementById('backMenuBtn').style.display = show ? 'block' : 'none';
+                }
+
+                // 修改 startGame 逻辑，进入游戏时显示返回菜单按钮
+                const originalStartGame = startGame;
+                startGame = function(mode) {
+                    showBackMenuBtn(true);
+                    originalStartGame(mode);
+                };
+
+                // 返回菜单按钮跳转主菜单
+                document.getElementById('backMenuBtn').addEventListener('click', function() {
+                    document.getElementById('hud').style.display = 'none';
+                    document.getElementById('main-menu').style.display = 'block';
+                    showBackMenuBtn(false);
+                    // 可选：暂停游戏内BGM，恢复菜单BGM
+                    if (typeof menuBgmEl !== 'undefined' && menuBgmEl) {
+                        try { menuBgmEl.play(); } catch {}
+                    }
+                    if (typeof bgmEl !== 'undefined' && bgmEl) {
+                        try { bgmEl.pause(); } catch {}
+                    }
+                    currentState = STATE.MENU;
+                });
+            // 返回菜单按钮跳转主菜单
+            document.getElementById('backMenuBtn').addEventListener('click', function() {
+                document.getElementById('hud').style.display = 'none';
+                document.getElementById('main-menu').style.display = 'block';
+                // 可选：暂停游戏内BGM，恢复菜单BGM
+                if (typeof menuBgmEl !== 'undefined' && menuBgmEl) {
+                    try { menuBgmEl.play(); } catch {}
+                }
+                if (typeof bgmEl !== 'undefined' && bgmEl) {
+                    try { bgmEl.pause(); } catch {}
+                }
+                currentState = STATE.MENU;
+            });
         import * as THREE from 'three';
 
         // --- 游戏状态管理 ---
@@ -851,10 +891,12 @@
 
             // 用户开始游戏时尝试播放背景音乐（默认开启）
             applyBgmState(bgmEnabled, 'startGame');
+            showBackMenuBtn(true);
         }
 
         function animate() { requestAnimationFrame(animate); updateGame(); renderer.render(scene, camera); }
         initThree(); animate();
     </script>
-</body>
+    <body>
+    </body>
 </html>
