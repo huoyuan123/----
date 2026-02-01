@@ -76,7 +76,7 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: rgba(0,0,0,0.15) url('menu.png') no-repeat center center;
+            background: rgba(0,0,0,0.15) url('images/ui/menu.png') no-repeat center center;
             background-size: cover;
             z-index: 9999;
             pointer-events: auto;
@@ -199,26 +199,26 @@
 
     <!-- 主菜单背景音乐 -->
     <audio id="menu-bgm" preload="auto" loop>
-        <source src="park bird - Are You Lost_H.ogg" type="audio/ogg">
+        <source src="audio/bgm/park%20bird%20-%20Are%20You%20Lost_H.ogg" type="audio/ogg">
     </audio>
 
     <!-- 游戏内背景音乐 -->
     <audio id="bgm" preload="auto" loop>
-        <source src="Tobu%20-%20Higher.flac" type="audio/flac">
+        <source src="audio/bgm/Tobu%20-%20Higher.flac" type="audio/flac">
     </audio>
 
     <!-- 剑与飞镖碰撞音效 -->
     <audio id="hit-sfx" preload="auto">
-        <source src="碰撞声音.mp3" type="audio/mpeg">
+        <source src="audio/sfx/碰撞声音.mp3" type="audio/mpeg">
     </audio>
     <!-- 堡垒受击音效 -->
     <audio id="fortress-hit-sfx" preload="auto">
-        <source src="堡垒受击.mp3" type="audio/mpeg">
+        <source src="audio/sfx/堡垒受击.mp3" type="audio/mpeg">
     </audio>
 
     <!-- UI 点击音效（任意可交互选项点击时播放） -->
     <audio id="click-sfx" preload="auto">
-        <source src="点击音效.mp3" type="audio/mpeg">
+        <source src="audio/sfx/点击音效.mp3" type="audio/mpeg">
     </audio>
 
     <div id="game-container"></div>
@@ -568,13 +568,191 @@
             }
         }
 
+        // --- 火焰剑发射火球音效（自动跳过静音片段） ---
+        const FIREBALL_SFX_URL = 'audio/sfx/火焰音效.mp3';
+        const FIREBALL_SFX_VOLUME = 0.35; // 0~1：火焰音效音量
+        const FIREBALL_SFX_FALLBACK_START_SEC = 0.0; // 若无法分析音频，默认从头播（可自行调成 0.1/0.2 之类跳过前导静音）
+        const FIREBALL_SFX_THRESHOLD = 0.02; // 振幅阈值：越大越“忽略小声音”
+        const FIREBALL_SFX_PAD_SEC = 0.02; // 片段首尾留一点余量
+        let fireballSfxCtx = null;
+        let fireballSfxBuffer = null;
+        let fireballSfxTrim = null; // { startSec, endSec }
+        let fireballSfxPreparePromise = null;
+
+        function getOrCreateAudioContext() {
+            const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextCtor) return null;
+            if (!fireballSfxCtx) fireballSfxCtx = new AudioContextCtor();
+            return fireballSfxCtx;
+        }
+
+        async function prepareFireballSfx() {
+            if (fireballSfxPreparePromise) return fireballSfxPreparePromise;
+            fireballSfxPreparePromise = (async () => {
+                const ctx = getOrCreateAudioContext();
+                if (!ctx) return;
+
+                // 尽量在“用户手势”之后调用 resume；如果被浏览器拦截，后续在手势里再触发也行
+                try { if (ctx.state === 'suspended') await ctx.resume(); } catch {}
+
+                const resp = await fetch(FIREBALL_SFX_URL);
+                const buf = await resp.arrayBuffer();
+                fireballSfxBuffer = await ctx.decodeAudioData(buf);
+
+                // 选一条声道做静音检测
+                const ch0 = fireballSfxBuffer.getChannelData(0);
+                const sr = fireballSfxBuffer.sampleRate;
+                let startIdx = -1;
+                let endIdx = -1;
+
+                for (let i = 0; i < ch0.length; i++) {
+                    if (Math.abs(ch0[i]) >= FIREBALL_SFX_THRESHOLD) { startIdx = i; break; }
+                }
+                for (let i = ch0.length - 1; i >= 0; i--) {
+                    if (Math.abs(ch0[i]) >= FIREBALL_SFX_THRESHOLD) { endIdx = i; break; }
+                }
+
+                if (startIdx >= 0 && endIdx >= startIdx) {
+                    const startSec = Math.max(0, startIdx / sr - FIREBALL_SFX_PAD_SEC);
+                    const endSec = Math.min(fireballSfxBuffer.duration, endIdx / sr + FIREBALL_SFX_PAD_SEC);
+                    fireballSfxTrim = { startSec, endSec };
+                } else {
+                    // 全程都低于阈值：当作无有效声音
+                    fireballSfxTrim = { startSec: FIREBALL_SFX_FALLBACK_START_SEC, endSec: null };
+                }
+            })().catch((e) => {
+                // 资源缺失/浏览器限制时不影响游戏
+                console.warn('Fireball SFX prepare failed:', e);
+            });
+            return fireballSfxPreparePromise;
+        }
+
+        function playFireballSfx() {
+            const ctx = getOrCreateAudioContext();
+            if (!ctx) return;
+
+            // 尽量异步准备；准备好前也先尝试直接播（会很快变为可用）
+            prepareFireballSfx();
+
+            if (!fireballSfxBuffer) {
+                // 还没解码完：用一个极简的 <audio> 退路（不裁切，但至少能响）
+                try {
+                    const a = new Audio(FIREBALL_SFX_URL);
+                    a.volume = FIREBALL_SFX_VOLUME;
+                    a.currentTime = FIREBALL_SFX_FALLBACK_START_SEC;
+                    const p = a.play();
+                    if (p && typeof p.catch === 'function') p.catch(() => {});
+                } catch {}
+                return;
+            }
+
+            // WebAudio 播放指定片段（可精确裁切“有声音”的区间）
+            try {
+                if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+                const src = ctx.createBufferSource();
+                src.buffer = fireballSfxBuffer;
+
+                const gain = ctx.createGain();
+                gain.gain.value = 0.2;
+
+                src.connect(gain);
+                gain.connect(ctx.destination);
+
+                const startSec = fireballSfxTrim?.startSec ?? FIREBALL_SFX_FALLBACK_START_SEC;
+                const endSec = fireballSfxTrim?.endSec ?? null;
+                const dur = endSec ? Math.max(0.01, endSec - startSec) : undefined;
+
+                if (dur !== undefined) src.start(0, startSec, dur);
+                else src.start(0, startSec);
+            } catch {}
+        }
+
+        // --- 火球命中（爆炸）音效：自动跳过静音片段 ---
+        const FIREBALL_EXPLOSION_SFX_URL = 'audio/sfx/火焰爆炸.mp3';
+        const FIREBALL_EXPLOSION_SFX_VOLUME = 0.45; // 0~1：爆炸音效音量
+        const FIREBALL_EXPLOSION_SFX_FALLBACK_START_SEC = 0.0;
+        let fireballExplosionSfxBuffer = null;
+        let fireballExplosionSfxTrim = null; // { startSec, endSec }
+        let fireballExplosionSfxPreparePromise = null;
+
+        async function prepareFireballExplosionSfx() {
+            if (fireballExplosionSfxPreparePromise) return fireballExplosionSfxPreparePromise;
+            fireballExplosionSfxPreparePromise = (async () => {
+                const ctx = getOrCreateAudioContext();
+                if (!ctx) return;
+                try { if (ctx.state === 'suspended') await ctx.resume(); } catch {}
+
+                const resp = await fetch(FIREBALL_EXPLOSION_SFX_URL);
+                const buf = await resp.arrayBuffer();
+                fireballExplosionSfxBuffer = await ctx.decodeAudioData(buf);
+
+                const ch0 = fireballExplosionSfxBuffer.getChannelData(0);
+                const sr = fireballExplosionSfxBuffer.sampleRate;
+                let startIdx = -1;
+                let endIdx = -1;
+
+                for (let i = 0; i < ch0.length; i++) {
+                    if (Math.abs(ch0[i]) >= FIREBALL_SFX_THRESHOLD) { startIdx = i; break; }
+                }
+                for (let i = ch0.length - 1; i >= 0; i--) {
+                    if (Math.abs(ch0[i]) >= FIREBALL_SFX_THRESHOLD) { endIdx = i; break; }
+                }
+
+                if (startIdx >= 0 && endIdx >= startIdx) {
+                    const startSec = Math.max(0, startIdx / sr - FIREBALL_SFX_PAD_SEC);
+                    const endSec = Math.min(fireballExplosionSfxBuffer.duration, endIdx / sr + FIREBALL_SFX_PAD_SEC);
+                    fireballExplosionSfxTrim = { startSec, endSec };
+                } else {
+                    fireballExplosionSfxTrim = { startSec: FIREBALL_EXPLOSION_SFX_FALLBACK_START_SEC, endSec: null };
+                }
+            })().catch((e) => {
+                console.warn('Fireball explosion SFX prepare failed:', e);
+            });
+            return fireballExplosionSfxPreparePromise;
+        }
+
+        function playFireballExplosionSfx() {
+            const ctx = getOrCreateAudioContext();
+            if (!ctx) return;
+
+            prepareFireballExplosionSfx();
+
+            if (!fireballExplosionSfxBuffer) {
+                try {
+                    const a = new Audio(FIREBALL_EXPLOSION_SFX_URL);
+                    a.volume = FIREBALL_EXPLOSION_SFX_VOLUME;
+                    a.currentTime = FIREBALL_EXPLOSION_SFX_FALLBACK_START_SEC;
+                    const p = a.play();
+                    if (p && typeof p.catch === 'function') p.catch(() => {});
+                } catch {}
+                return;
+            }
+
+            try {
+                if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+                const src = ctx.createBufferSource();
+                src.buffer = fireballExplosionSfxBuffer;
+
+                const gain = ctx.createGain();
+                gain.gain.value = FIREBALL_EXPLOSION_SFX_VOLUME;
+                src.connect(gain);
+                gain.connect(ctx.destination);
+
+                const startSec = fireballExplosionSfxTrim?.startSec ?? FIREBALL_EXPLOSION_SFX_FALLBACK_START_SEC;
+                const endSec = fireballExplosionSfxTrim?.endSec ?? null;
+                const dur = endSec ? Math.max(0.01, endSec - startSec) : undefined;
+                if (dur !== undefined) src.start(0, startSec, dur);
+                else src.start(0, startSec);
+            } catch {}
+        }
+
         // --- 飞镖抠像资源（用于敌人/材料特效） ---
         const DART_IMAGE_URLS = [
-            'images/飞镖 (1).png',
-            'images/飞镖 (2).png',
-            'images/飞镖 (3).png',
-            'images/飞镖 (4).png',
-            'images/飞镖 (5).png'
+            'images/entities/darts/飞镖 (1).png',
+            'images/entities/darts/飞镖 (2).png',
+            'images/entities/darts/飞镖 (3).png',
+            'images/entities/darts/飞镖 (4).png',
+            'images/entities/darts/飞镖 (5).png'
         ];
         let dartSprites = []; // { texture, aspect }
         let dartSpritesReady = false;
@@ -657,7 +835,7 @@
             const fortressGeo = new THREE.PlaneGeometry(4, 3); // 将堡垒的宽度调整为更宽尺寸
 
             const loader = new THREE.TextureLoader();
-            loader.load('生成塔防小堡垒照片.png', (texture) => {
+            loader.load('images/entities/fortress/生成塔防小堡垒照片.png', (texture) => {
                 const material = new THREE.ShaderMaterial({
                     uniforms: {
                         map: { value: texture },
@@ -751,7 +929,7 @@
             scene.add(sword);
 
             // 加载初始剑.jpg
-            loadSwordImage('初始剑.jpg').then(({ texture, aspect }) => {
+            loadSwordImage('images/weapons/初始剑.jpg').then(({ texture, aspect }) => {
                 const h = 4.5; // 可调：视觉上合适的高度
                 const w = h * aspect;
                 const geo = new THREE.PlaneGeometry(w, h);
@@ -772,7 +950,7 @@
         // 修改背景加载逻辑，确保背景图撑满全屏
         function createBackground() {
             const loader = new THREE.TextureLoader();
-            loader.load('闯关背景.jpg', (texture) => {
+            loader.load('images/backgrounds/闯关背景.jpg', (texture) => {
                 const aspect = window.innerWidth / window.innerHeight;
                 const bgWidth = FRUSTUM_SIZE * aspect * 1.2; // 拉宽背景图
                 const bgHeight = FRUSTUM_SIZE * 1.2; // 拉高背景图
@@ -878,6 +1056,7 @@
                 if (fb.userData.updateTail) fb.userData.updateTail();
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     if (fb.position.distanceTo(enemies[j].position) < 2.0) {
+                        playFireballExplosionSfx();
                         createParticles(enemies[j].position);
                         scene.remove(enemies[j]); enemies.splice(j, 1);
                         score += 150; materials += 2; updateHUD();
@@ -975,10 +1154,14 @@
                 const now = Date.now();
                 if (now - lastFireballTime < FIREBALL_COOLDOWN_MS) return; // 每秒最多发射三颗
                 lastFireballTime = now;
+
+                // 火焰剑发射音效（自动裁切有效声音片段）
+                playFireballSfx();
+
                 sword.updateMatrixWorld(true);
                 const swordTip = new THREE.Vector3(0, 1, 0).applyMatrix4(sword.matrixWorld);
                 const direction = new THREE.Vector3(0, 1, 0).applyQuaternion(sword.quaternion).normalize();
-                loadSwordImage('火球.png').then(({ texture, aspect }) => {
+                loadSwordImage('images/weapons/火球.png').then(({ texture, aspect }) => {
                     const h = 1.1;
                     const w = h * aspect;
                     const geo = new THREE.PlaneGeometry(w, h);
@@ -1131,7 +1314,7 @@
         function createFlameSword() {
             sword = new THREE.Group();
             scene.add(sword);
-            loadSwordImage('火焰剑.png').then(({ texture, aspect }) => {
+            loadSwordImage('images/weapons/火焰剑.png').then(({ texture, aspect }) => {
                 const h = 4.5;
                 const w = h * aspect;
                 const geo = new THREE.PlaneGeometry(w, h);
